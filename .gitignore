@@ -1,0 +1,8 @@
+/output.webp
+.env
+.env.*
+*.pem
+*.key
+*credentials*
+.idea
+.DS_Store
