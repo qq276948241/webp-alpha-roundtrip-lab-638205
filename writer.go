@@ -8,6 +8,9 @@
 package webp
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"io"
@@ -29,13 +32,13 @@ type colorModeler interface {
 }
 
 func Save(name string, m image.Image, opt *Options) (err error) {
-	f, err := os.Create(name)
-	if err != nil {
+	// Encode into a buffer first: a failed encode must not leave a
+	// partially written file behind.
+	var buf bytes.Buffer
+	if err = encode(&buf, m, opt); err != nil {
 		return err
 	}
-	defer f.Close()
-
-	return encode(f, m, opt)
+	return os.WriteFile(name, buf.Bytes(), 0666)
 }
 
 // Encode writes the image m to w in WEBP format.
@@ -44,6 +47,12 @@ func Encode(w io.Writer, m image.Image, opt *Options) (err error) {
 }
 
 func encode(w io.Writer, m image.Image, opt *Options) (err error) {
+	if m == nil {
+		return errors.New("webp: Encode, nil image")
+	}
+	if opt != nil && !opt.Lossless && !validQuality(opt.Quality) {
+		return fmt.Errorf("webp: Encode, invalid quality %v (want 0 ~ 100)", opt.Quality)
+	}
 	var output []byte
 	if opt != nil && opt.Lossless {
 		switch m := adjustImage(m).(type) {

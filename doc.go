@@ -10,11 +10,34 @@ https://developers.google.com/speed/webp/docs/riff_container
 
 Install
 
-Install `GCC` or `MinGW` (http://tdm-gcc.tdragon.net/download) at first,
-and then run these commands:
+The package bundles libwebp and builds it with cgo. Install `GCC` (Linux),
+the Xcode Command Line Tools (macOS) or `MinGW`
+(http://tdm-gcc.tdragon.net/download) first, keep CGO_ENABLED=1, and then
+run these commands:
 
 	1. `go get github.com/chai2010/webp`
 	2. `go run hello.go`
+
+Run the tests (offline fixtures only) with:
+
+	go test ./...
+	go test -race ./...
+
+Container validation
+
+Decode, DecodeRGB, DecodeRGBA, DecodeGray, GetInfo and GetMetadata share a
+common RIFF/WEBP validation layer, so the same byte stream yields the same
+dimensions and the same errors from every entry point. Truncated streams,
+chunk-size overflows, missing RIFF padding and oversize canvases are
+rejected before any decode buffer is allocated. Trailing bytes past the
+declared RIFF size are ignored.
+
+Metadata
+
+GetMetadata returns the raw ICCP/EXIF/XMP chunk payload; a missing format
+is an error. SetMetadata replaces an existing chunk of the same format
+(last write wins), keeps the canonical chunk order (VP8X, ICCP, image,
+EXIF, XMP) and preserves unknown chunks.
 
 Examples
 

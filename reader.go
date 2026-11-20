@@ -56,21 +56,26 @@ func Load(name string) (m image.Image, err error) {
 	}
 
 	data := make([]byte, int(fi.Size()))
-	if _, err = f.Read(data); err != nil {
+	if _, err = io.ReadFull(f, data); err != nil {
 		return nil, err
 	}
-	if m, err = DecodeRGBA(data); err != nil {
-		return
+	img, err := DecodeRGBA(data)
+	if err != nil {
+		// Return a nil interface, not a typed nil pointer.
+		return nil, err
 	}
-	return
+	return img, nil
 }
 
 // DecodeConfig returns the color model and dimensions of a WEBP image without
 // decoding the entire image.
 func DecodeConfig(r io.Reader) (config image.Config, err error) {
 	header := make([]byte, maxWebpHeaderSize)
-	n, err := r.Read(header)
-	if err != nil && err != io.EOF {
+	// Use ReadFull so readers that return short reads (network streams,
+	// bufio with small buffers) still yield a complete header. EOF with
+	// fewer bytes is fine: GetInfo validates what it gets.
+	n, err := io.ReadFull(r, header)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 		return
 	}
 	header, err = header[:n], nil
@@ -88,12 +93,14 @@ func DecodeConfig(r io.Reader) (config image.Config, err error) {
 func Decode(r io.Reader) (m image.Image, err error) {
 	data, err := ioutil.ReadAll(r)
 	if err != nil {
-		return
+		return nil, err
 	}
-	if m, err = DecodeRGBA(data); err != nil {
-		return
+	img, err := DecodeRGBA(data)
+	if err != nil {
+		// Return a nil interface, not a typed nil pointer.
+		return nil, err
 	}
-	return
+	return img, nil
 }
 
 func init() {

@@ -30,12 +30,16 @@ package webp
 import "C"
 import (
 	"errors"
+	"fmt"
 	"unsafe"
 )
 
 func webpGetInfo(data []byte) (width, height int, hasAlpha bool, err error) {
 	if len(data) == 0 {
 		err = errors.New("webpGetInfo: bad arguments, data is empty")
+		return
+	}
+	if err = validateWebPHeaderPrefix(data); err != nil {
 		return
 	}
 	if len(data) > maxWebpHeaderSize {
@@ -52,9 +56,27 @@ func webpGetInfo(data []byte) (width, height int, hasAlpha bool, err error) {
 	return
 }
 
+// webpDecodeSize validates the container and returns the decoded dimensions,
+// rejecting oversize canvases before any decode buffer is allocated.
+func webpDecodeSize(data []byte, channels int) (width, height int, err error) {
+	if err = validateWebPContainer(data); err != nil {
+		return
+	}
+	if width, height, _, err = webpGetInfo(data); err != nil {
+		return
+	}
+	if err = checkDecodeBudget(width, height, channels); err != nil {
+		return
+	}
+	return
+}
+
 func webpDecodeGray(data []byte) (pix []byte, width, height int, err error) {
 	if len(data) == 0 {
 		err = errors.New("webpDecodeGray: bad arguments")
+		return
+	}
+	if width, height, err = webpDecodeSize(data, 1); err != nil {
 		return
 	}
 
@@ -77,6 +99,9 @@ func webpDecodeRGB(data []byte) (pix []byte, width, height int, err error) {
 		err = errors.New("webpDecodeRGB: bad arguments")
 		return
 	}
+	if width, height, err = webpDecodeSize(data, 3); err != nil {
+		return
+	}
 
 	var cw, ch C.int
 	var cptr = C.webpDecodeRGB((*C.uint8_t)(unsafe.Pointer(&data[0])), C.size_t(len(data)), &cw, &ch)
@@ -97,6 +122,9 @@ func webpDecodeRGBA(data []byte) (pix []byte, width, height int, err error) {
 		err = errors.New("webpDecodeRGBA: bad arguments")
 		return
 	}
+	if width, height, err = webpDecodeSize(data, 4); err != nil {
+		return
+	}
 
 	var cw, ch C.int
 	var cptr = C.webpDecodeRGBA((*C.uint8_t)(unsafe.Pointer(&data[0])), C.size_t(len(data)), &cw, &ch)
@@ -112,7 +140,22 @@ func webpDecodeRGBA(data []byte) (pix []byte, width, height int, err error) {
 	return
 }
 
+// validScaleArgs validates DecodeXXXToSize arguments before the output
+// buffer is allocated.
+func validScaleArgs(who string, data []byte, width, height, channels int) error {
+	if len(data) == 0 {
+		return fmt.Errorf("%s: bad arguments, data is empty", who)
+	}
+	if err := checkDecodeBudget(width, height, channels); err != nil {
+		return fmt.Errorf("%s: %v", who, err)
+	}
+	return validateWebPContainer(data)
+}
+
 func webpDecodeGrayToSize(data []byte, width, height int) (pix []byte, err error) {
+	if err = validScaleArgs("webpDecodeGrayToSize", data, width, height, 1); err != nil {
+		return
+	}
 	pix = make([]byte, int(width*height))
 	stride := C.int(width)
 	res := C.webpDecodeGrayToSize((*C.uint8_t)(unsafe.Pointer(&data[0])), C.size_t(len(data)), C.int(width), C.int(height), stride, (*C.uint8_t)(unsafe.Pointer(&pix[0])))
@@ -124,6 +167,9 @@ func webpDecodeGrayToSize(data []byte, width, height int) (pix []byte, err error
 }
 
 func webpDecodeRGBToSize(data []byte, width, height int) (pix []byte, err error) {
+	if err = validScaleArgs("webpDecodeRGBToSize", data, width, height, 3); err != nil {
+		return
+	}
 	pix = make([]byte, int(3*width*height))
 	stride := C.int(3 * width)
 	res := C.webpDecodeRGBToSize((*C.uint8_t)(unsafe.Pointer(&data[0])), C.size_t(len(data)), C.int(width), C.int(height), stride, (*C.uint8_t)(unsafe.Pointer(&pix[0])))
@@ -135,6 +181,9 @@ func webpDecodeRGBToSize(data []byte, width, height int) (pix []byte, err error)
 }
 
 func webpDecodeRGBAToSize(data []byte, width, height int) (pix []byte, err error) {
+	if err = validScaleArgs("webpDecodeRGBAToSize", data, width, height, 4); err != nil {
+		return
+	}
 	pix = make([]byte, int(4*width*height))
 	stride := C.int(4 * width)
 	res := C.webpDecodeRGBAToSize((*C.uint8_t)(unsafe.Pointer(&data[0])), C.size_t(len(data)), C.int(width), C.int(height), stride, (*C.uint8_t)(unsafe.Pointer(&pix[0])))
@@ -146,12 +195,11 @@ func webpDecodeRGBAToSize(data []byte, width, height int) (pix []byte, err error
 }
 
 func webpEncodeGray(pix []byte, width, height, stride int, quality float32) (output []byte, err error) {
-	if len(pix) == 0 || width <= 0 || height <= 0 || stride <= 0 || quality < 0.0 {
-		err = errors.New("webpEncodeGray: bad arguments")
+	if err = validEncodeArgs("webpEncodeGray", pix, width, height, stride, 1); err != nil {
 		return
 	}
-	if stride < width*1 && len(pix) < height*stride {
-		err = errors.New("webpEncodeGray: bad arguments")
+	if !validQuality(quality) {
+		err = fmt.Errorf("webpEncodeGray: invalid quality %v", quality)
 		return
 	}
 
@@ -173,12 +221,11 @@ func webpEncodeGray(pix []byte, width, height, stride int, quality float32) (out
 }
 
 func webpEncodeRGB(pix []byte, width, height, stride int, quality float32) (output []byte, err error) {
-	if len(pix) == 0 || width <= 0 || height <= 0 || stride <= 0 || quality < 0.0 {
-		err = errors.New("webpEncodeRGB: bad arguments")
+	if err = validEncodeArgs("webpEncodeRGB", pix, width, height, stride, 3); err != nil {
 		return
 	}
-	if stride < width*3 && len(pix) < height*stride {
-		err = errors.New("webpEncodeRGB: bad arguments")
+	if !validQuality(quality) {
+		err = fmt.Errorf("webpEncodeRGB: invalid quality %v", quality)
 		return
 	}
 
@@ -200,12 +247,11 @@ func webpEncodeRGB(pix []byte, width, height, stride int, quality float32) (outp
 }
 
 func webpEncodeRGBA(pix []byte, width, height, stride int, quality float32) (output []byte, err error) {
-	if len(pix) == 0 || width <= 0 || height <= 0 || stride <= 0 || quality < 0.0 {
-		err = errors.New("webpEncodeRGBA: bad arguments")
+	if err = validEncodeArgs("webpEncodeRGBA", pix, width, height, stride, 4); err != nil {
 		return
 	}
-	if stride < width*4 && len(pix) < height*stride {
-		err = errors.New("webpEncodeRGBA: bad arguments")
+	if !validQuality(quality) {
+		err = fmt.Errorf("webpEncodeRGBA: invalid quality %v", quality)
 		return
 	}
 
@@ -227,12 +273,7 @@ func webpEncodeRGBA(pix []byte, width, height, stride int, quality float32) (out
 }
 
 func webpEncodeLosslessGray(pix []byte, width, height, stride int) (output []byte, err error) {
-	if len(pix) == 0 || width <= 0 || height <= 0 || stride <= 0 {
-		err = errors.New("webpEncodeLosslessGray: bad arguments")
-		return
-	}
-	if stride < width*1 && len(pix) < height*stride {
-		err = errors.New("webpEncodeLosslessGray: bad arguments")
+	if err = validEncodeArgs("webpEncodeLosslessGray", pix, width, height, stride, 1); err != nil {
 		return
 	}
 
@@ -254,12 +295,7 @@ func webpEncodeLosslessGray(pix []byte, width, height, stride int) (output []byt
 }
 
 func webpEncodeLosslessRGB(pix []byte, width, height, stride int) (output []byte, err error) {
-	if len(pix) == 0 || width <= 0 || height <= 0 || stride <= 0 {
-		err = errors.New("webpEncodeLosslessRGB: bad arguments")
-		return
-	}
-	if stride < width*3 && len(pix) < height*stride {
-		err = errors.New("webpEncodeLosslessRGB: bad arguments")
+	if err = validEncodeArgs("webpEncodeLosslessRGB", pix, width, height, stride, 3); err != nil {
 		return
 	}
 
@@ -281,12 +317,7 @@ func webpEncodeLosslessRGB(pix []byte, width, height, stride int) (output []byte
 }
 
 func webpEncodeLosslessRGBA(exact int, pix []byte, width, height, stride int) (output []byte, err error) {
-	if len(pix) == 0 || width <= 0 || height <= 0 || stride <= 0 {
-		err = errors.New("webpEncodeLosslessRGBA: bad arguments")
-		return
-	}
-	if stride < width*4 && len(pix) < height*stride {
-		err = errors.New("webpEncodeLosslessRGBA: bad arguments")
+	if err = validEncodeArgs("webpEncodeLosslessRGBA", pix, width, height, stride, 4); err != nil {
 		return
 	}
 
@@ -375,6 +406,9 @@ func webpGetMetadata(data []byte, format string) (metadata []byte, err error) {
 		err = errors.New("webpGetMetadata: bad arguments")
 		return
 	}
+	if err = validateWebPContainer(data); err != nil {
+		return
+	}
 
 	switch format {
 	case "EXIF":
@@ -458,6 +492,9 @@ func webpSetXMP(data, metadata []byte) (newData []byte, err error) {
 func webpSetMetadata(data, metadata []byte, format string) (newData []byte, err error) {
 	if len(data) == 0 || len(metadata) == 0 {
 		err = errors.New("webpSetMetadata: bad arguments")
+		return
+	}
+	if err = validateWebPContainer(data); err != nil {
 		return
 	}
 

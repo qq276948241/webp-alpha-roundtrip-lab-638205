@@ -105,9 +105,33 @@ func DecodeRGBAToSize(data []byte, width, height int) (m *image.RGBA, err error)
 	return
 }
 
+// grayPix returns the pixel slice of a Gray image starting at its Rect.Min,
+// so sub-images and non-zero bounds encode the visible rectangle, not the
+// whole backing array.
+func grayPix(p *image.Gray) []byte {
+	if len(p.Pix) == 0 {
+		return p.Pix
+	}
+	return p.Pix[p.PixOffset(p.Rect.Min.X, p.Rect.Min.Y):]
+}
+
+func rgbPix(p *RGBImage) []byte {
+	if len(p.XPix) == 0 {
+		return p.XPix
+	}
+	return p.XPix[p.PixOffset(p.XRect.Min.X, p.XRect.Min.Y):]
+}
+
+func rgbaPix(p *image.RGBA) []byte {
+	if len(p.Pix) == 0 {
+		return p.Pix
+	}
+	return p.Pix[p.PixOffset(p.Rect.Min.X, p.Rect.Min.Y):]
+}
+
 func EncodeGray(m image.Image, quality float32) (data []byte, err error) {
 	p := toGrayImage(m)
-	data, err = webpEncodeGray(p.Pix, p.Rect.Dx(), p.Rect.Dy(), p.Stride, quality)
+	data, err = webpEncodeGray(grayPix(p), p.Rect.Dx(), p.Rect.Dy(), p.Stride, quality)
 	if err != nil {
 		return
 	}
@@ -116,31 +140,31 @@ func EncodeGray(m image.Image, quality float32) (data []byte, err error) {
 
 func EncodeRGB(m image.Image, quality float32) (data []byte, err error) {
 	p := NewRGBImageFrom(m)
-	data, err = webpEncodeRGB(p.XPix, p.XRect.Dx(), p.XRect.Dy(), p.XStride, quality)
+	data, err = webpEncodeRGB(rgbPix(p), p.XRect.Dx(), p.XRect.Dy(), p.XStride, quality)
 	return
 }
 
 func EncodeRGBA(m image.Image, quality float32) (data []byte, err error) {
 	p := toRGBAImage(m)
-	data, err = webpEncodeRGBA(p.Pix, p.Rect.Dx(), p.Rect.Dy(), p.Stride, quality)
+	data, err = webpEncodeRGBA(rgbaPix(p), p.Rect.Dx(), p.Rect.Dy(), p.Stride, quality)
 	return
 }
 
 func EncodeLosslessGray(m image.Image) (data []byte, err error) {
 	p := toGrayImage(m)
-	data, err = webpEncodeLosslessGray(p.Pix, p.Rect.Dx(), p.Rect.Dy(), p.Stride)
+	data, err = webpEncodeLosslessGray(grayPix(p), p.Rect.Dx(), p.Rect.Dy(), p.Stride)
 	return
 }
 
 func EncodeLosslessRGB(m image.Image) (data []byte, err error) {
 	p := NewRGBImageFrom(m)
-	data, err = webpEncodeLosslessRGB(p.XPix, p.XRect.Dx(), p.XRect.Dy(), p.XStride)
+	data, err = webpEncodeLosslessRGB(rgbPix(p), p.XRect.Dx(), p.XRect.Dy(), p.XStride)
 	return
 }
 
 func EncodeLosslessRGBA(m image.Image) (data []byte, err error) {
 	p := toRGBAImage(m)
-	data, err = webpEncodeLosslessRGBA(0, p.Pix, p.Rect.Dx(), p.Rect.Dy(), p.Stride)
+	data, err = webpEncodeLosslessRGBA(0, rgbaPix(p), p.Rect.Dx(), p.Rect.Dy(), p.Stride)
 	return
 }
 
@@ -148,7 +172,7 @@ func EncodeLosslessRGBA(m image.Image) (data []byte, err error) {
 // exact: preserve RGB values in transparent area.
 func EncodeExactLosslessRGBA(m image.Image) (data []byte, err error) {
 	p := toRGBAImage(m)
-	data, err = webpEncodeLosslessRGBA(1, p.Pix, p.Rect.Dx(), p.Rect.Dy(), p.Stride)
+	data, err = webpEncodeLosslessRGBA(1, rgbaPix(p), p.Rect.Dx(), p.Rect.Dy(), p.Stride)
 	return
 }
 
@@ -159,5 +183,5 @@ func GetMetadata(data []byte, format string) (metadata []byte, err error) {
 
 // SetMetadata set EXIF/ICCP/XMP format metadata.
 func SetMetadata(data, metadata []byte, format string) (newData []byte, err error) {
-	return webpSetMetadata(data, metadata, format)
+	return webpSetMetadata(data, metadata, strings.ToUpper(format))
 }
